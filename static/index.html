@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Signalfit SHL Agent</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="chat-panel" aria-label="SHL assessment chat">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Signalfit</p>
+            <h1>SHL Assessment Agent</h1>
+          </div>
+          <span class="status" id="status">Ready</span>
+        </header>
+
+        <div class="messages" id="messages" aria-live="polite">
+          <article class="message assistant">
+            <div class="avatar">S</div>
+            <div class="bubble">
+              <p>Tell me the role you are hiring for, the seniority, and any skills or assessment areas that matter. I will clarify when needed and return catalog-grounded SHL recommendations.</p>
+            </div>
+          </article>
+        </div>
+
+        <div class="quick-prompts" aria-label="Example prompts">
+          <button type="button" data-prompt="We need a solution for senior leadership.">Senior leadership</button>
+          <button type="button" data-prompt="Hiring a mid-level Java backend engineer. Need Java, Spring, SQL and personality.">Java backend</button>
+          <button type="button" data-prompt="Need entry-level contact center agents with spoken English and call handling.">Contact center</button>
+        </div>
+
+        <form class="composer" id="composer">
+          <textarea id="input" rows="2" placeholder="Type your message..." autocomplete="off"></textarea>
+          <button type="submit" id="send">Send</button>
+        </form>
+      </section>
+    </main>
+
+    <dialog class="qa-dialog" id="qa-dialog">
+      <form method="dialog" class="qa-panel">
+        <header class="qa-header">
+          <div>
+            <p class="eyebrow">Assessment Note</p>
+            <h2 id="qa-title">Assessment</h2>
+          </div>
+          <button type="submit" class="icon-button" aria-label="Close">×</button>
+        </header>
+        <div class="qa-body">
+          <section>
+            <h3>Question</h3>
+            <p id="qa-question"></p>
+          </section>
+          <section>
+            <h3>Answer</h3>
+            <p id="qa-answer"></p>
+          </section>
+        </div>
+        <footer class="qa-footer">
+          <a id="qa-link" href="#" target="_blank" rel="noreferrer">Open catalog page</a>
+          <span id="qa-type"></span>
+        </footer>
+      </form>
+    </dialog>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

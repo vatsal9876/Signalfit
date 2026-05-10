@@ -1,0 +1,143 @@
+import os
+from pathlib import Path
+from typing import Any, Dict, List, Literal
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, ConfigDict, Field
+
+
+ROOT = Path(__file__).resolve().parent
+STATIC_DIR = ROOT / "static"
+
+app = FastAPI(
+    title="Signalfit SHL Recommendation Agent",
+    description="Conversational retrieval API for SHL assessment recommendations.",
+    version="0.1.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+_WARMED = False
+
+
+class Message(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1)
+
+
+class ChatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    messages: List[Message] = Field(..., min_length=1)
+
+
+class Recommendation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    url: str
+    test_type: str
+
+
+class AgentResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reply: str
+    recommendations: List[Recommendation]
+    end_of_conversation: bool
+
+
+class HealthResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: str
+
+
+def _to_controller_messages(messages: List[Message]) -> List[Dict[str, str]]:
+    return [
+        {
+            "role": message.role,
+            "content": message.content
+        }
+        for message in messages
+    ]
+
+
+def _run_agent(messages: List[Dict[str, str]]) -> Dict[str, Any]:
+    from agent.controller import agent
+
+    try:
+        return agent(messages)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=str(exc)
+        ) from exc
+
+
+def _warm_agent():
+    global _WARMED
+
+    if _WARMED:
+        return
+
+    from retrieval.embeddings import get_model
+    from retrieval.search import catalog, index
+
+    get_model()
+    len(catalog)
+    index.ntotal
+    _WARMED = True
+
+
+@app.get("/")
+def root():
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/health", response_model=HealthResponse)
+def health():
+    _warm_agent()
+
+    return {
+        "status": "ok",
+    }
+
+
+@app.post("/chat", response_model=AgentResponse)
+def chat(request: ChatRequest):
+    """
+    Main conversational endpoint.
+
+    Send the full conversation history. The controller reconstructs current
+    state from the full trace, so refinements work without server-side memory.
+    """
+
+    messages = _to_controller_messages(request.messages)
+    return _run_agent(messages)
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    port = int(os.getenv("PORT", "8000"))
+
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=port,
+        reload=True
+    )

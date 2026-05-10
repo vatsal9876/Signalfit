@@ -1,19 +1,261 @@
 import os
 import json
+import re
 from dotenv import load_dotenv
 from groq import Groq
-from prompts import state_system_prompt
 
-client=Groq(api_key=os.getenv("GROQ_API_KEY"))
+try:
+    from .prompts import state_system_prompt
+except ImportError:
+    from prompts import state_system_prompt
+
+
+load_dotenv()
+
+MODEL_NAME = os.getenv(
+    "GROQ_STATE_MODEL",
+    os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+)
+
+DEFAULT_STATE = {
+    "operation": "recommend",
+    "out_of_scope": False,
+    "refusal_reason": None,
+    "clarification_intent": "none",
+    "clarification_question": None,
+    "role": None,
+    "seniority": None,
+    "domain": None,
+    "test_types": [],
+    "requirements": [],
+    "personality_required": False,
+    "leadership_required": False,
+    "technical_required": False,
+    "development_use": False,
+    "selection_use": False,
+    "remote_required": False,
+    "adaptive_required": False,
+    "final_confirmation": False,
+}
+
+
+def _client():
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY is required for LLM state extraction.")
+    return Groq(api_key=api_key)
+
+
+def _conversation_text(messages):
+    return "\n".join(
+        f"{msg.get('role', '')}: {msg.get('content', '')}"
+        for msg in messages
+    )
+
+
+def _parse_json_object(content):
+    text = content.strip()
+
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text).strip()
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+
+        if start >= 0 and end > start:
+            return json.loads(text[start:end + 1])
+
+        raise
+
+
+def _normalise_state(raw_state):
+    state = DEFAULT_STATE.copy()
+
+    if isinstance(raw_state, dict):
+        state.update({key: raw_state.get(key, state[key]) for key in state})
+
+    if not isinstance(state["requirements"], list):
+        state["requirements"] = []
+
+    if not isinstance(state["test_types"], list):
+        state["test_types"] = []
+
+    state["test_types"] = _normalise_test_types(state["test_types"])
+
+    if state.get("operation") not in {
+        "clarify",
+        "compare",
+        "refine",
+        "recommend",
+    }:
+        state["operation"] = "recommend"
+
+    state["out_of_scope"] = bool(state.get("out_of_scope"))
+
+    if not state["out_of_scope"]:
+        state["refusal_reason"] = None
+
+    if state.get("clarification_intent") not in {
+        "none",
+        "role_missing",
+        "seniority_missing",
+        "assessment_purpose",
+        "role_focus",
+        "skill_priority",
+        "language_constraint",
+        "assessment_mix",
+        "constraint_conflict",
+    }:
+        state["clarification_intent"] = "none"
+
+    if state["operation"] == "clarify" and state["clarification_intent"] == "none":
+        raise ValueError(f"Clarify operation missing clarification intent: {raw_state}")
+
+    if state["operation"] != "clarify":
+        state["clarification_intent"] = "none"
+        state["clarification_question"] = None
+    elif state["clarification_intent"] == "none":
+        state["clarification_question"] = None
+    elif not state.get("clarification_question"):
+        raise ValueError(f"Clarification intent missing question: {raw_state}")
+
+    for key in [
+        "personality_required",
+        "leadership_required",
+        "technical_required",
+        "development_use",
+        "selection_use",
+        "remote_required",
+        "adaptive_required",
+        "final_confirmation",
+    ]:
+        state[key] = bool(state.get(key))
+
+    state["domain"] = _normalise_domain(state.get("domain"))
+
+    if not state["test_types"]:
+        state["test_types"] = _infer_test_types_from_state(state)
+
+    return state
+
+
+def _normalise_test_types(values):
+    allowed = {"A", "B", "C", "D", "E", "K", "P", "S"}
+    aliases = {
+        "ability": "A",
+        "aptitude": "A",
+        "cognitive": "A",
+        "biodata": "B",
+        "situational": "B",
+        "sjt": "B",
+        "competency": "C",
+        "competencies": "C",
+        "development": "D",
+        "360": "D",
+        "assessment exercise": "E",
+        "exercise": "E",
+        "knowledge": "K",
+        "skills": "K",
+        "technical": "K",
+        "personality": "P",
+        "behavior": "P",
+        "behaviour": "P",
+        "simulation": "S",
+        "simulations": "S",
+    }
+    result = []
+
+    for value in values:
+        if value is None:
+            continue
+
+        text = str(value).strip()
+        code = text.upper()
+
+        if code in allowed:
+            mapped = code
+        else:
+            mapped = aliases.get(text.lower())
+
+        if mapped and mapped not in result:
+            result.append(mapped)
+
+    return result
+
+
+def _normalise_domain(value):
+    if not value:
+        return None
+
+    domain = re.sub(r"[^a-z0-9]+", "_", str(value).strip().lower()).strip("_")
+
+    aliases = {
+        "software": "software_engineering",
+        "software_development": "software_engineering",
+        "engineering": "software_engineering",
+        "technology": "software_engineering",
+        "tech": "software_engineering",
+        "contact_center": "customer_service",
+        "call_center": "customer_service",
+        "support": "customer_service",
+        "sales_reskilling": "sales",
+        "financial": "finance",
+        "accounting": "finance",
+        "medical": "healthcare",
+        "health": "healthcare",
+        "safety": "safety_manufacturing",
+        "manufacturing": "safety_manufacturing",
+        "industrial": "safety_manufacturing",
+        "office": "office_productivity",
+        "productivity": "office_productivity",
+        "excel_word": "office_productivity",
+        "languages": "language",
+        "cognitive": "general_cognitive",
+        "analytics": "data_analytics",
+        "data": "data_analytics",
+    }
+
+    return aliases.get(domain, domain or None)
+
+
+def _infer_test_types_from_state(state):
+    test_types = []
+
+    if state.get("technical_required"):
+        test_types.extend(["K", "S"])
+    if state.get("personality_required"):
+        test_types.append("P")
+    if state.get("leadership_required"):
+        test_types.extend(["C", "P", "D", "E"])
+    if state.get("development_use"):
+        test_types.append("D")
+
+    requirements = " ".join(state.get("requirements") or []).lower()
+
+    if any(word in requirements for word in ["cognitive", "ability", "aptitude", "reasoning", "numerical", "verbal", "inductive", "deductive"]):
+        test_types.append("A")
+    if any(word in requirements for word in ["situational", "judgment", "judgement", "scenario"]):
+        test_types.append("B")
+    if any(word in requirements for word in ["simulation", "call handling", "live coding", "phone", "contact center"]):
+        test_types.append("S")
+    if any(word in requirements for word in ["spoken", "written", "language", "english", "spanish"]):
+        test_types.extend(["K", "S"])
+    if any(word in requirements for word in ["communication", "competency", "competencies", "stakeholder"]):
+        test_types.append("C")
+
+    return _normalise_test_types(test_types)
+
 
 def extract_state(messages):
-    conversation=""
+    conversation = _conversation_text(messages)
+    client = _client()
 
-    for msg in messages:
-        conversation+=f"{msg['role']}: {msg['content']}\n"
-
-    response=client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+    response = client.chat.completions.create(
+        model=MODEL_NAME,
         messages=[
             {
                 "role": "system",
@@ -24,11 +266,12 @@ def extract_state(messages):
                 "content": conversation
             }
         ],
-        temperature=0
+        temperature=0,
+        response_format={"type": "json_object"},
     )
 
-    content=response.choices[0].message.content
-    return json.loads(content)
+    content = response.choices[0].message.content
+    return _normalise_state(_parse_json_object(content))
 
 if __name__ == "__main__":
 
