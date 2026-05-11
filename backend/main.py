@@ -1,5 +1,6 @@
 import os
 import sys
+import threading
 from pathlib import Path
 from typing import Any, Dict, List, Literal
 
@@ -34,6 +35,7 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 _WARMED = False
+_LLM_WARMED = False
 
 
 class Message(BaseModel):
@@ -106,6 +108,48 @@ def _warm_agent():
     len(catalog)
     index.ntotal
     _WARMED = True
+
+
+def _warm_llm():
+    global _LLM_WARMED
+
+    if _LLM_WARMED or not os.getenv("GROQ_API_KEY"):
+        return
+
+    try:
+        from groq import Groq
+
+        model = os.getenv(
+            "GROQ_STATE_MODEL",
+            os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+        )
+        client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+        client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Return only valid JSON.",
+                },
+                {
+                    "role": "user",
+                    "content": "Warmup. Return {\"ok\": true}.",
+                },
+            ],
+            temperature=0,
+            max_tokens=8,
+            response_format={"type": "json_object"},
+        )
+        _LLM_WARMED = True
+    except Exception:
+        # Warmup should never make the app unavailable.
+        _LLM_WARMED = False
+
+
+@app.on_event("startup")
+def startup():
+    threading.Thread(target=_warm_llm, daemon=True).start()
 
 
 @app.get("/")
