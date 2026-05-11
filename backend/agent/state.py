@@ -27,6 +27,7 @@ DEFAULT_STATE = {
     "seniority": None,
     "domain": None,
     "test_types": [],
+    "soft_test_types": [],
     "requirements": [],
     "personality_required": False,
     "leadership_required": False,
@@ -84,7 +85,17 @@ def _normalise_state(raw_state):
     if not isinstance(state["test_types"], list):
         state["test_types"] = []
 
+    if not isinstance(state["soft_test_types"], list):
+        state["soft_test_types"] = []
+
     state["test_types"] = _normalise_test_types(state["test_types"])
+    state["soft_test_types"] = _normalise_test_types(state["soft_test_types"])
+    state["soft_test_types"] = [
+        test_type
+        for test_type in state["soft_test_types"]
+        if test_type in {"A", "P"} and test_type not in state["test_types"]
+    ]
+
 
     if state.get("operation") not in {
         "clarify",
@@ -112,6 +123,32 @@ def _normalise_state(raw_state):
     }:
         state["clarification_intent"] = "none"
 
+    for key in [
+        "personality_required",
+        "leadership_required",
+        "technical_required",
+        "development_use",
+        "selection_use",
+        "remote_required",
+        "adaptive_required",
+        "final_confirmation",
+    ]:
+        state[key] = _normalise_bool(state.get(key))
+
+    if _clarification_answered(state):
+        state["clarification_intent"] = "none"
+        state["clarification_question"] = None
+        if state["operation"] == "clarify":
+            state["operation"] = "recommend"
+
+    has_clarification = (
+        state.get("clarification_intent") != "none"
+        and bool(state.get("clarification_question"))
+    )
+
+    if state["operation"] != "clarify" and has_clarification:
+        state["operation"] = "clarify"
+
     if state["operation"] == "clarify" and state["clarification_intent"] == "none":
         raise ValueError(f"Clarify operation missing clarification intent: {raw_state}")
 
@@ -123,22 +160,15 @@ def _normalise_state(raw_state):
     elif not state.get("clarification_question"):
         raise ValueError(f"Clarification intent missing question: {raw_state}")
 
-    for key in [
-        "personality_required",
-        "leadership_required",
-        "technical_required",
-        "development_use",
-        "selection_use",
-        "remote_required",
-        "adaptive_required",
-        "final_confirmation",
-    ]:
-        state[key] = bool(state.get(key))
-
     state["domain"] = _normalise_domain(state.get("domain"))
 
     if not state["test_types"]:
         state["test_types"] = _infer_test_types_from_state(state)
+        state["soft_test_types"] = [
+            test_type
+            for test_type in state["soft_test_types"]
+            if test_type in {"A", "P"} and test_type not in state["test_types"]
+        ]
 
     return state
 
@@ -185,6 +215,47 @@ def _normalise_test_types(values):
             result.append(mapped)
 
     return result
+
+
+def _normalise_bool(value):
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "yes", "1"}
+
+    return bool(value)
+
+
+def _clarification_answered(state):
+    intent = state.get("clarification_intent")
+
+    if intent == "role_missing":
+        return bool(state.get("role") or state.get("domain"))
+
+    if intent == "seniority_missing":
+        return bool(state.get("seniority"))
+
+    if intent == "assessment_purpose":
+        return bool(state.get("selection_use") or state.get("development_use"))
+
+    if intent == "role_focus":
+        return bool(state.get("requirements"))
+
+    if intent == "skill_priority":
+        return bool(state.get("requirements") or state.get("test_types"))
+
+    if intent == "language_constraint":
+        requirements = " ".join(state.get("requirements") or []).lower()
+        return any(
+            word in requirements
+            for word in ["language", "english", "spanish", "french", "german"]
+        )
+
+    if intent == "assessment_mix":
+        return len(state.get("test_types") or []) > 1
+
+    return False
 
 
 def _normalise_domain(value):

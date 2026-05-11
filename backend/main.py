@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Literal
 
@@ -10,7 +11,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 ROOT = Path(__file__).resolve().parent
-STATIC_DIR = ROOT / "static"
+PROJECT_ROOT = ROOT.parent
+STATIC_DIR = PROJECT_ROOT / "frontend"
+
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 app = FastAPI(
     title="Signalfit SHL Recommendation Agent",
@@ -136,7 +141,7 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
 
     uvicorn.run(
-        "main:app",
+        "backend.main:app",
         host="0.0.0.0",
         port=port,
         reload=True

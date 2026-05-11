@@ -9,7 +9,7 @@ from urllib import request
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG_PATH = ROOT / "data" / "shl_catalog.json"
-DEFAULT_TRACES_DIR = ROOT / "GenAI_SampleConversations"
+DEFAULT_TRACES_DIR = ROOT.parent / "GenAI_SampleConversations"
 
 
 @dataclass
@@ -401,8 +401,8 @@ def main():
         "cases": len(results),
         "mean_recall_at_10": mean_recall,
         "schema_failures": schema_failures,
-        "by_trace": by_trace,
-        "results": results,
+        # "by_trace": by_trace,
+        # "results": results,
     }, indent=2))
 
 

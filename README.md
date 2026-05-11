@@ -7,13 +7,13 @@ conversational retrieval for recruitment assessment recommendation
 Run locally:
 
 ```bash
-uvicorn main:app --reload
+uvicorn backend.main:app --reload
 ```
 
 Production/deployment command:
 
 ```bash
-uvicorn main:app --host 0.0.0.0 --port $PORT
+uvicorn backend.main:app --host 0.0.0.0 --port $PORT
 ```
 
 Endpoints:
@@ -55,26 +55,31 @@ The app is stateless: send full conversation history for refinement and comparis
 
 shl_agent/
 │
-├── app.py
-├── requirements.txt
+├── backend/
+│   ├── main.py
+│   ├── requirements.txt
+│   │
+│   ├── data/
+│   │   ├── shl_catalog.json
+│   │   ├── embeddings.npy
+│   │   └── data_index
+│   │
+│   ├── retrieval/
+│   │   ├── embeddings.py
+│   │   ├── indexer.py
+│   │   └── search.py
+│   │
+│   ├── agent/
+│   │   ├── controller.py
+│   │   ├── operations.py
+│   │   ├── state.py
+│   │   ├── reranker.py
+│   │   └── prompts.py
+│   │
+│   └── evaluation/
+│       └── eval.py
 │
-├── data/
-│   ├── shl_catalog.json
-│   └── shl.index
-│
-├── retrieval/
-│   ├── embeddings.py
-│   ├── indexer.py
-│   └── search.py
-│
-├── agent/
-│   ├── controller.py
-│   ├── operations.py
-│   ├── state.py
-│   └── prompts.py
-│
-├── utils/
-│   └── helpers.py
-│
-└── evaluation/
-    └── eval.py
+└── frontend/
+    ├── index.html
+    ├── app.js
+    └── styles.css

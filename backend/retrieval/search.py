@@ -143,6 +143,10 @@ def build_query(state):
         signals.extend(DOMAIN_TERMS.get(state["domain"], []))
     if state.get("test_types"):
         signals.append(" ".join(_test_type_labels(state["test_types"])))
+    if state.get("soft_test_types"):
+        signals.append("optional complementary " + " ".join(
+            _test_type_labels(state["soft_test_types"])
+        ))
 
     return f"""
     Role:
@@ -162,6 +166,9 @@ def build_query(state):
 
     Desired Test Types:
     {", ".join(state.get("test_types") or [])}
+
+    Optional Complementary Test Types:
+    {", ".join(state.get("soft_test_types") or [])}
     """
 
 
@@ -316,6 +323,7 @@ def _metadata_boost(candidate, state):
 
 
 def _rule_boost(candidate, state):
+    name = candidate.get("name", "").lower()
     text = " ".join(
         [
             candidate.get("name", ""),
@@ -354,6 +362,35 @@ def _rule_boost(candidate, state):
         "selection" in text or "screen" in text or "assessment" in text
     ):
         boost += 0.08
+
+    soft_types = set(state.get("soft_test_types") or [])
+    candidate_types = _candidate_test_types(candidate)
+
+    if "P" in soft_types and "P" in candidate_types:
+        boost += 0.05
+    if "A" in soft_types and "A" in candidate_types:
+        boost += 0.05
+
+    if (
+        state.get("leadership_required")
+        and state.get("personality_required")
+        and state.get("selection_use")
+    ):
+        if "occupational personality questionnaire" in name:
+            boost += 0.70
+        if "leadership report" in name:
+            boost += 0.55
+        if "universal competency report" in name:
+            boost += 0.50
+
+        requirements = " ".join(state.get("requirements") or []).lower()
+
+        if "sales" in name and state.get("domain") != "sales":
+            boost -= 0.35
+        if "development" in name and not state.get("development_use"):
+            boost -= 0.30
+        if "team" in name and "team" not in requirements:
+            boost -= 0.20
 
     if state.get("remote_required") and candidate.get("remote") == "yes":
         boost += 0.05

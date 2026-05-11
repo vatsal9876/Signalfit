@@ -15,6 +15,7 @@ Required schema:
   "seniority": string or null,
   "domain": string or null,
   "test_types": [string],
+  "soft_test_types": [string],
   "requirements": [string],
   "personality_required": boolean,
   "leadership_required": boolean,
@@ -32,6 +33,8 @@ Rules:
 - operation must be one of clarify/compare/refine/recommend.
 - Use compare if and only when the latest user asks to compare assessments.
 - Use clarify when the next assistant turn should ask a clarification question before recommending. note that clarify is not just for missing parameters, but specifically when the absence of an important parameter should trigger a clarification question. For example, if the user says "I need an assessment for a leadership role" but never specifies the seniority level, that should trigger a clarify with intent seniority_missing, because seniority materially affects which assessments are suitable. On the other hand, if the user says "I need a personality assessment for a leadership role" and never specifies seniority, that might not trigger clarify, because the recommendation might be the same across seniority levels.
+- Prefer clarify over recommend when an initial shortlist would depend on a high-impact missing answer.
+- Use the clarification_intent categories to identify the single missing answer that would most change retrieval or final recommendation.
 - When operation is clarify, clarification_intent must not be "none" and clarification_question must contain the one question to ask.
 - When operation is not clarify, clarification_intent should be "none" and clarification_question should be null.
 - Use recommend as the default normal SHL recommendation flow when the latest user is giving requirements, answering clarification, confirming constraints, or asking for a shortlist.
@@ -41,6 +44,12 @@ Rules:
 - refusal_reason should briefly describe why the request is outside SHL assessment recommendation scope when out_of_scope is true; otherwise it must be null.
 - Use the latest user message as the strongest signal for operation
 - Use conversation history to identify refinements and current constraints
+- If the latest user message is a short answer to a prior clarification, merge
+  that answer into the existing conversation state instead of replacing the
+  role, domain, requirements, seniority, purpose, or test_types with only the
+  short answer.
+- When a short answer resolves a clarification, use recommend/refine as
+  appropriate and set clarification_intent to "none".
 - Missing string values should be null
 - Missing list values should be []
 - Missing boolean values should be false
@@ -50,6 +59,13 @@ Rules:
 - domain should be a concise lowercase domain label such as software_engineering, customer_service, sales, finance, healthcare, leadership, safety_manufacturing, office_productivity, language, general_cognitive, data_analytics, operations, or other
 - test_types should contain SHL type codes when the conversation implies them: A ability/aptitude, B biodata/situational judgment, C competencies, D development/360, E assessment exercises, K knowledge/skills, P personality/behavior, S simulations
 - Include multiple test_types when the user asks for a blended shortlist, for example technical plus personality should be ["K", "S", "P"]
+- soft_test_types may contain A or P only as optional complementary signals
+  when aptitude/personality could add useful breadth but the user did not ask
+  for them explicitly. Keep this sparse; do not add soft types for every
+  selection request, short knowledge-only screen, or when the user implies a
+  lean/fast/skills-only battery.
+- Use soft_test_types instead of test_types when aptitude/personality is merely
+  worth considering and should not force retrieval or final recommendation.
 - clarification_intent must be "none" unless a missing answer would materially change retrieval or final recommendation.You can also not take it none if u thing the missing parameter is highly relevant to the user's needs, for example seniority for leadership roles or role focus for broad roles spanning different batteries
 - clarification_question must be null when clarification_intent is "none".
 - If clarification_intent is not "none", ask exactly one concise question tied to that intent.

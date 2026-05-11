@@ -45,6 +45,12 @@ Rules:
 - If the latest user asks whether an item is redundant or needed, answer that
   question. Keep it if useful, or omit it only if you list a grounded reason in
   omitted_previous.
+- soft_test_types in the extracted state are optional considerations, not
+  requirements. Include those assessment types only when they clearly
+  complement the user's explicit role needs and do not crowd out more direct
+  matches.
+- Do not add aptitude or personality solely because they appear in
+  soft_test_types.
 - Ground any explanation only in the provided candidates and extracted state.
 - Keep the reply concise but not robotic.
 - return ONLY valid JSON
