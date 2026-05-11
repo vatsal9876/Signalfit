@@ -1,0 +1,260 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [6 0 R 8 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+5 0 obj
+<< /Length 6615 >>
+stream
+BT
+/F2 13 Tf
+1 0 0 1 54 748.0 Tm
+(Signalfit SHL Recommendation Agent - Approach) Tj
+/F2 10.5 Tf
+1 0 0 1 54 727.0 Tm
+(Objective and Design Choices) Tj
+/F1 8.7 Tf
+1 0 0 1 54 709.0 Tm
+(The goal was to build a conversational SHL assessment recommender that can ask clarifying questions,) Tj
+/F1 8.7 Tf
+1 0 0 1 54 698.9 Tm
+(retrieve catalog-grounded products, and preserve a working shortlist across turns. I separated the) Tj
+/F1 8.7 Tf
+1 0 0 1 54 688.8 Tm
+(system into a `backend/` FastAPI service and a static `frontend/` UI. The backend is stateless: every) Tj
+/F1 8.7 Tf
+1 0 0 1 54 678.7 Tm
+(`/chat` request sends the full message history, and the agent reconstructs the current state from that) Tj
+/F1 8.7 Tf
+1 0 0 1 54 668.6 Tm
+(history. This keeps deployment simple and avoids server-side conversation storage.) Tj
+/F1 8.7 Tf
+1 0 0 1 54 652.5 Tm
+(The backend pipeline has three stages. First, an LLM extracts structured state: operation \(`clarify`,) Tj
+/F1 8.7 Tf
+1 0 0 1 54 642.4 Tm
+(`recommend`, `refine`, `compare`\), role, seniority, domain, test types, requirements, purpose, and) Tj
+/F1 8.7 Tf
+1 0 0 1 54 632.3 Tm
+(clarification intent. Second, retrieval builds a bounded candidate pool from the SHL catalog. Third, a) Tj
+/F1 8.7 Tf
+1 0 0 1 54 622.2 Tm
+(reranker LLM selects only from retrieved/prior candidates and returns a concise reply plus catalog) Tj
+/F1 8.7 Tf
+1 0 0 1 54 612.1 Tm
+(names/URLs. Prior shortlist reconstruction is important for refinement turns: the latest assistant-) Tj
+/F1 8.7 Tf
+1 0 0 1 54 602.0 Tm
+(emitted `Shortlist:` is treated as the working state, so removals and confirmations do not silently) Tj
+/F1 8.7 Tf
+1 0 0 1 54 591.9 Tm
+(resurrect old items.) Tj
+/F2 10.5 Tf
+1 0 0 1 54 575.8 Tm
+(Retrieval Setup) Tj
+/F1 8.7 Tf
+1 0 0 1 54 557.8 Tm
+(The catalog is stored in `backend/data/shl_catalog.json`, with a FAISS index and cached embeddings.) Tj
+/F1 8.7 Tf
+1 0 0 1 54 547.7 Tm
+(Retrieval combines lexical scoring, metadata filters, and embedding search. The query is built from) Tj
+/F1 8.7 Tf
+1 0 0 1 54 537.6 Tm
+(extracted state: role, seniority, requirements, domain terms, hard test types, and optional soft test) Tj
+/F1 8.7 Tf
+1 0 0 1 54 527.5 Tm
+(types. Metadata boosts reward matching job levels and SHL test categories. Rule boosts handle common) Tj
+/F1 8.7 Tf
+1 0 0 1 54 517.4 Tm
+(domain signals such as leadership, technical skills, selection, development, remote/adaptive) Tj
+/F1 8.7 Tf
+1 0 0 1 54 507.3 Tm
+(constraints, and report/artifact penalties.) Tj
+/F1 8.7 Tf
+1 0 0 1 54 491.2 Tm
+(I avoided making personality or aptitude mandatory defaults. Instead, I added `soft_test_types`,) Tj
+/F1 8.7 Tf
+1 0 0 1 54 481.1 Tm
+(currently limited to `A` and `P`. The state extractor may mark aptitude/personality as optional when) Tj
+/F1 8.7 Tf
+1 0 0 1 54 471.0 Tm
+(they could complement the role, but retrieval only applies a very small boost and does not treat them) Tj
+/F1 8.7 Tf
+1 0 0 1 54 460.9 Tm
+(as hard filters. The reranker is explicitly told that soft types are optional and should not crowd out) Tj
+/F1 8.7 Tf
+1 0 0 1 54 450.8 Tm
+(direct role-critical assessments.) Tj
+/F2 10.5 Tf
+1 0 0 1 54 434.7 Tm
+(Prompt Design) Tj
+/F1 8.7 Tf
+1 0 0 1 54 416.7 Tm
+(There are two main prompts. The state prompt forces a compact JSON schema and decides whether the next) Tj
+/F1 8.7 Tf
+1 0 0 1 54 406.6 Tm
+(turn should clarify or recommend. A key improvement was teaching it to merge short clarification) Tj
+/F1 8.7 Tf
+1 0 0 1 54 396.5 Tm
+(answers, such as "US", "English", "backend", or "selection", into the existing state instead of) Tj
+/F1 8.7 Tf
+1 0 0 1 54 386.4 Tm
+(replacing the whole query. This addressed multi-turn failures where the system lost the original role) Tj
+/F1 8.7 Tf
+1 0 0 1 54 376.3 Tm
+(context after the user answered a narrow clarification.) Tj
+/F1 8.7 Tf
+1 0 0 1 54 360.2 Tm
+(The reranker prompt is deliberately restrictive. It can only select from provided candidates, must) Tj
+/F1 8.7 Tf
+1 0 0 1 54 350.1 Tm
+(preserve exact catalog names, must not invent URLs, and must not pad to 10 recommendations. For) Tj
+/F1 8.7 Tf
+1 0 0 1 54 340.0 Tm
+(refinements, the previous shortlist is the working shortlist; previous items are preserved unless the) Tj
+/F1 8.7 Tf
+1 0 0 1 54 329.9 Tm
+(latest user message or updated requirements justify removal. If the model omits a prior item, it must) Tj
+/F1 8.7 Tf
+1 0 0 1 54 319.8 Tm
+(return a grounded omission reason.) Tj
+/F2 10.5 Tf
+1 0 0 1 54 303.7 Tm
+(Evaluation Method) Tj
+/F1 8.7 Tf
+1 0 0 1 54 285.7 Tm
+(Evaluation is implemented in `backend/evaluation/eval.py`. It parses the public sample conversations) Tj
+/F1 8.7 Tf
+1 0 0 1 54 275.6 Tm
+(into recommendation checkpoints. For each checkpoint, expected catalog names are extracted from the) Tj
+/F1 8.7 Tf
+1 0 0 1 54 265.5 Tm
+(trace tables and canonicalized by URL/name against the SHL catalog. The agent response is scored with) Tj
+/F1 8.7 Tf
+1 0 0 1 54 255.4 Tm
+(Recall@10: expected products recovered in the returned recommendation list divided by expected) Tj
+/F1 8.7 Tf
+1 0 0 1 54 245.3 Tm
+(products. The script also validates the response schema and reports mean Recall@10 overall and by) Tj
+/F1 8.7 Tf
+1 0 0 1 54 235.2 Tm
+(conversation.) Tj
+/F1 8.7 Tf
+1 0 0 1 54 219.1 Tm
+(I used both full eval runs and targeted probes. Targeted probes were useful when full LLM-backed runs) Tj
+/F1 8.7 Tf
+1 0 0 1 54 209.0 Tm
+(were slow or unstable: for example, I inspected C1 turn 3 state/response directly and tested whether) Tj
+/F1 8.7 Tf
+1 0 0 1 54 198.9 Tm
+(retrieval could surface the expected candidates before reranking. I also checked degraded-state) Tj
+/F1 8.7 Tf
+1 0 0 1 54 188.8 Tm
+(scenarios for C3 to isolate whether zero recall came from retrieval or from state reconstruction.) Tj
+/F2 10.5 Tf
+1 0 0 1 54 172.7 Tm
+(What Did Not Work) Tj
+/F1 8.7 Tf
+1 0 0 1 54 154.7 Tm
+(The first attempt to stop early recommendations used a deterministic controller-level screening gate.) Tj
+/F1 8.7 Tf
+1 0 0 1 54 144.6 Tm
+(That was too blunt. It blocked valid recommendation checkpoints, reduced mean recall, and interfered) Tj
+/F1 8.7 Tf
+1 0 0 1 54 134.5 Tm
+(with retrieval. I removed that approach. The better fix was to keep retrieval unblocked and make) Tj
+/F1 8.7 Tf
+1 0 0 1 54 124.4 Tm
+(clarification a state-level decision: if the extractor has a live unanswered clarification, ask it; if) Tj
+/F1 8.7 Tf
+1 0 0 1 54 114.3 Tm
+(the clarification has already been answered in the structured state, clear it and recommend.) Tj
+/F1 8.7 Tf
+1 0 0 1 54 98.2 Tm
+(Another issue was stale clarification intent. In C1 turn 3, the user answered the purpose question with) Tj
+ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 5 0 R >>
+endobj
+7 0 obj
+<< /Length 1855 >>
+stream
+BT
+/F1 8.7 Tf
+1 0 0 1 54 748.0 Tm
+(selection, but state still contained the previous clarification question. The agent repeated the) Tj
+/F1 8.7 Tf
+1 0 0 1 54 737.9 Tm
+(question and got 0 recall. I added normalization that clears an answered clarification, improving that) Tj
+/F1 8.7 Tf
+1 0 0 1 54 727.8 Tm
+(checkpoint from 0.000 to 0.333 before further retrieval tuning.) Tj
+/F1 8.7 Tf
+1 0 0 1 54 711.7 Tm
+(C3 showed a different failure mode. The expected stack was a spoken language screen, call simulation,) Tj
+/F1 8.7 Tf
+1 0 0 1 54 701.6 Tm
+(customer-service fit, and phone simulation. Retrieval could find all four when the state preserved the) Tj
+/F1 8.7 Tf
+1 0 0 1 54 691.5 Tm
+(contact-center context, but collapsed when the latest short answer "US" replaced the full state. The) Tj
+/F1 8.7 Tf
+1 0 0 1 54 681.4 Tm
+(generic prompt fix for short clarification answers addressed this without hardcoding C3 products.) Tj
+/F2 10.5 Tf
+1 0 0 1 54 665.3 Tm
+(Measuring Improvement and Tool Use) Tj
+/F1 8.7 Tf
+1 0 0 1 54 647.3 Tm
+(Improvement was measured with the same Recall@10 eval checkpoints, schema validation, and targeted) Tj
+/F1 8.7 Tf
+1 0 0 1 54 637.2 Tm
+(before/after probes. I tracked whether fixes improved the failing checkpoint without blocking retrieval) Tj
+/F1 8.7 Tf
+1 0 0 1 54 627.1 Tm
+(or overfitting to one trace. I also used local checks such as `py_compile`, retrieval top-k inspection,) Tj
+/F1 8.7 Tf
+1 0 0 1 54 617.0 Tm
+(and eval dry-runs after restructuring.) Tj
+/F1 8.7 Tf
+1 0 0 1 54 600.9 Tm
+(I used OpenAI Codex as an agentic coding assistant for codebase navigation, refactoring, prompt) Tj
+/F1 8.7 Tf
+1 0 0 1 54 590.8 Tm
+(iteration, targeted debugging, and generating this report. I did not use no-code builders. All) Tj
+/F1 8.7 Tf
+1 0 0 1 54 580.7 Tm
+(recommendation logic remains code/prompt based and catalog-grounded.) Tj
+ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 7 0 R >>
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000127 00000 n 
+0000000197 00000 n 
+0000000272 00000 n 
+0000006939 00000 n 
+0000007075 00000 n 
+0000008982 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+9118
+%%EOF
