@@ -1,8 +1,10 @@
 import os
 import json
 import re
+import time
+from pathlib import Path
 from dotenv import load_dotenv
-from groq import Groq
+from groq import Groq, RateLimitError
 
 try:
     from .prompts import state_system_prompt
@@ -10,7 +12,8 @@ except ImportError:
     from prompts import state_system_prompt
 
 
-load_dotenv()
+ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+load_dotenv(ENV_PATH, override=True)
 
 MODEL_NAME = os.getenv(
     "GROQ_STATE_MODEL",
@@ -44,14 +47,85 @@ def _client():
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         raise RuntimeError("GROQ_API_KEY is required for LLM state extraction.")
-    return Groq(api_key=api_key)
+    timeout = float(os.getenv("GROQ_TIMEOUT", "20"))
+    return Groq(api_key=api_key, timeout=timeout)
+
+
+def _create_chat_completion(client, **kwargs):
+    for attempt in range(3):
+        try:
+            return client.chat.completions.create(**kwargs)
+        except RateLimitError as exc:
+            if attempt == 2:
+                raise
+
+            message = str(exc)
+            match = re.search(r"try again in ([0-9.]+)s", message)
+            delay = float(match.group(1)) if match else 2 * (attempt + 1)
+            time.sleep(min(delay + 1, 45))
+        except Exception as exc:
+            if getattr(exc, "status_code", None) == 429 and attempt < 2:
+                message = str(exc)
+                match = re.search(r"try again in ([0-9.]+)s", message)
+                delay = float(match.group(1)) if match else 2 * (attempt + 1)
+                time.sleep(min(delay + 1, 45))
+                continue
+
+            raise RuntimeError(f"Groq state extraction failed: {exc}") from exc
 
 
 def _conversation_text(messages):
     return "\n".join(
-        f"{msg.get('role', '')}: {msg.get('content', '')}"
-        for msg in messages
+        f"{msg.get('role', '')}: {msg.get('content', '')}" for msg in messages
     )
+
+
+def _latest_user_text(messages):
+    for message in reversed(messages or []):
+        if message.get("role") == "user":
+            return message.get("content", "")
+
+    return ""
+
+
+def _repair_short_clarification_answer(state, messages):
+    latest = _latest_user_text(messages).strip().lower()
+    compact_latest = re.sub(r"[^a-z.]+", "", latest).strip(".")
+    conversation = _conversation_text(messages).lower()
+
+    language_answers = {
+        "us",
+        "u.s.",
+        "usa",
+        "english",
+        "uk",
+        "u.k.",
+        "australian",
+        "indian",
+        "spanish",
+        "hybrid",
+    }
+
+    if (
+        state.get("operation") == "clarify"
+        and state.get("clarification_intent") == "language_constraint"
+        and (
+            latest in language_answers
+            or compact_latest in language_answers
+            or "functionally bilingual" in latest
+            or "go with the hybrid" in latest
+        )
+    ):
+        state["operation"] = "recommend"
+        state["clarification_intent"] = "none"
+        state["clarification_question"] = None
+
+        if "contact center" in conversation or "contact centre" in conversation:
+            state["domain"] = state.get("domain") or "customer_service"
+        if "healthcare" in conversation or "patient records" in conversation:
+            state["domain"] = state.get("domain") or "healthcare"
+
+    return state
 
 
 def _parse_json_object(content):
@@ -68,9 +142,43 @@ def _parse_json_object(content):
         end = text.rfind("}")
 
         if start >= 0 and end > start:
-            return json.loads(text[start:end + 1])
+            return json.loads(text[start : end + 1])
 
         raise
+
+
+def _repair_state(client, conversation, raw_state, error):
+    repair_prompt = f"""
+    The previous JSON did not satisfy the required state schema.
+
+    Validation error:
+    {error}
+
+    Conversation:
+    {conversation}
+
+    Previous JSON:
+    {json.dumps(raw_state, indent=2)}
+
+    Return corrected JSON only. Preserve correct extracted fields where
+    possible. If operation is clarify, choose exactly one valid
+    clarification_intent and include exactly one concise clarification_question.
+    If operation is not clarify, clarification_intent must be "none" and
+    clarification_question must be null.
+    """
+
+    response = _create_chat_completion(
+        client,
+        model=MODEL_NAME,
+        messages=[
+            {"role": "system", "content": state_system_prompt},
+            {"role": "user", "content": repair_prompt},
+        ],
+        temperature=0,
+        response_format={"type": "json_object"},
+    )
+
+    return _parse_json_object(response.choices[0].message.content)
 
 
 def _normalise_state(raw_state):
@@ -95,7 +203,6 @@ def _normalise_state(raw_state):
         for test_type in state["soft_test_types"]
         if test_type in {"A", "P"} and test_type not in state["test_types"]
     ]
-
 
     if state.get("operation") not in {
         "clarify",
@@ -141,9 +248,8 @@ def _normalise_state(raw_state):
         if state["operation"] == "clarify":
             state["operation"] = "recommend"
 
-    has_clarification = (
-        state.get("clarification_intent") != "none"
-        and bool(state.get("clarification_question"))
+    has_clarification = state.get("clarification_intent") != "none" and bool(
+        state.get("clarification_question")
     )
 
     if state["operation"] != "clarify" and has_clarification:
@@ -307,15 +413,45 @@ def _infer_test_types_from_state(state):
 
     requirements = " ".join(state.get("requirements") or []).lower()
 
-    if any(word in requirements for word in ["cognitive", "ability", "aptitude", "reasoning", "numerical", "verbal", "inductive", "deductive"]):
+    if any(
+        word in requirements
+        for word in [
+            "cognitive",
+            "ability",
+            "aptitude",
+            "reasoning",
+            "numerical",
+            "verbal",
+            "inductive",
+            "deductive",
+        ]
+    ):
         test_types.append("A")
-    if any(word in requirements for word in ["situational", "judgment", "judgement", "scenario"]):
+    if any(
+        word in requirements
+        for word in ["situational", "judgment", "judgement", "scenario"]
+    ):
         test_types.append("B")
-    if any(word in requirements for word in ["simulation", "call handling", "live coding", "phone", "contact center"]):
+    if any(
+        word in requirements
+        for word in [
+            "simulation",
+            "call handling",
+            "live coding",
+            "phone",
+            "contact center",
+        ]
+    ):
         test_types.append("S")
-    if any(word in requirements for word in ["spoken", "written", "language", "english", "spanish"]):
+    if any(
+        word in requirements
+        for word in ["spoken", "written", "language", "english", "spanish"]
+    ):
         test_types.extend(["K", "S"])
-    if any(word in requirements for word in ["communication", "competency", "competencies", "stakeholder"]):
+    if any(
+        word in requirements
+        for word in ["communication", "competency", "competencies", "stakeholder"]
+    ):
         test_types.append("C")
 
     return _normalise_test_types(test_types)
@@ -325,24 +461,37 @@ def extract_state(messages):
     conversation = _conversation_text(messages)
     client = _client()
 
-    response = client.chat.completions.create(
+    response = _create_chat_completion(
+        client,
         model=MODEL_NAME,
         messages=[
-            {
-                "role": "system",
-                "content": state_system_prompt
-            },
-            {
-                "role": "user",
-                "content": conversation
-            }
+            {"role": "system", "content": state_system_prompt},
+            {"role": "user", "content": conversation},
         ],
         temperature=0,
         response_format={"type": "json_object"},
     )
 
     content = response.choices[0].message.content
-    return _normalise_state(_parse_json_object(content))
+    raw_state = _parse_json_object(content)
+
+    try:
+        return _repair_short_clarification_answer(
+            _normalise_state(raw_state),
+            messages,
+        )
+    except ValueError as exc:
+        repaired_state = _repair_state(
+            client,
+            conversation,
+            raw_state,
+            str(exc),
+        )
+        return _repair_short_clarification_answer(
+            _normalise_state(repaired_state),
+            messages,
+        )
+
 
 if __name__ == "__main__":
 
@@ -353,7 +502,7 @@ if __name__ == "__main__":
                 "Hiring a mid-level Java "
                 "backend engineer with "
                 "stakeholder communication"
-            )
+            ),
         }
     ]
 

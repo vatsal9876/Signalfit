@@ -10,6 +10,24 @@ Run locally:
 uvicorn backend.main:app --reload
 ```
 
+Required environment variables:
+
+```bash
+GROQ_API_KEY=...
+JINA_API_KEY=...
+```
+
+Embeddings are generated through Jina's hosted embedding API instead of a local
+SentenceTransformer model, which keeps Render free-tier memory usage low.
+The default embedding size is 384 dimensions to match the checked-in FAISS
+index. After changing embedding model or dimensions, regenerate the catalog
+vectors and FAISS index:
+
+```bash
+python backend/retrieval/embeddings.py
+python backend/retrieval/indexer.py
+```
+
 Production/deployment command:
 
 ```bash

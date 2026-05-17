@@ -32,11 +32,32 @@ Rules:
 - No explanations
 - operation must be one of clarify/compare/refine/recommend.
 - Use compare if and only when the latest user asks to compare assessments.
-- Use clarify when the next assistant turn should ask a clarification question before recommending. note that clarify is not just for missing parameters, but specifically when the absence of an important parameter should trigger a clarification question. For example, if the user says "I need an assessment for a leadership role" but never specifies the seniority level, that should trigger a clarify with intent seniority_missing, because seniority materially affects which assessments are suitable. On the other hand, if the user says "I need a personality assessment for a leadership role" and never specifies seniority, that might not trigger clarify, because the recommendation might be the same across seniority levels.
-- Prefer clarify over recommend when an initial shortlist would depend on a high-impact missing answer.
+- Use clarify when the next assistant turn should ask one targeted question
+  before recommending because the current information is too ambiguous to
+  choose SHL products responsibly.
+- Prefer recommend when the conversation already contains a usable assessment
+  brief: role or job family, domain, business objective, target population,
+  skills/qualities, assessment types, seniority, or selection/development
+  purpose. It does not need every field to be filled.
+- A hiring or selection purpose by itself is not enough job context. If there
+  is no role, job family, domain, work context, skill/quality focus, or
+  assessment type, operation must be clarify with clarification_intent
+  role_missing.
+- Broad domains can still be ready for recommend when the user supplies a
+  clear objective or assessment focus. Do not clarify merely because a role
+  family is broad.
+- Use clarify only when the missing answer would materially change which
+  product family should be retrieved, such as no role/work context at all, a
+  broad multi-skill JD with unclear ownership, unresolved language/localization
+  constraints, leadership selection vs development ambiguity, or a conflict
+  between constraints.
 - Use the clarification_intent categories to identify the single missing answer that would most change retrieval or final recommendation.
 - When operation is clarify, clarification_intent must not be "none" and clarification_question must contain the one question to ask.
 - When operation is not clarify, clarification_intent should be "none" and clarification_question should be null.
+- Output with operation clarify and clarification_intent "none" is invalid.
+- Output with operation clarify and a null clarification_question is invalid.
+- If operation is clarify and more than one intent could apply, choose the
+  single intent whose answer would most change retrieval.
 - Use recommend as the default normal SHL recommendation flow when the latest user is giving requirements, answering clarification, confirming constraints, or asking for a shortlist.
 - Use refine only when the latest user explicitly changes a previous shortlist or constraints, such as add, remove, drop, instead, actually, also include, or exclude.
 - Do not use refuse as an operation.
@@ -66,7 +87,8 @@ Rules:
   lean/fast/skills-only battery.
 - Use soft_test_types instead of test_types when aptitude/personality is merely
   worth considering and should not force retrieval or final recommendation.
-- clarification_intent must be "none" unless a missing answer would materially change retrieval or final recommendation.You can also not take it none if u thing the missing parameter is highly relevant to the user's needs, for example seniority for leadership roles or role focus for broad roles spanning different batteries
+- clarification_intent must be "none" unless a missing answer would materially
+  change retrieval or final recommendation.
 - clarification_question must be null when clarification_intent is "none".
 - If clarification_intent is not "none", ask exactly one concise question tied to that intent.
 - Do not ask generic questions.

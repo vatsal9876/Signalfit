@@ -1,10 +1,13 @@
 import os
 import json
 import re
+import time
+from pathlib import Path
 from dotenv import load_dotenv
-from groq import Groq
+from groq import Groq, RateLimitError
 
-load_dotenv()
+ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+load_dotenv(ENV_PATH, override=True)
 
 MODEL_NAME = os.getenv(
     "GROQ_RERANKER_MODEL",
@@ -84,9 +87,32 @@ def _parse_json_object(content):
         end = text.rfind("}")
 
         if start >= 0 and end > start:
-            return json.loads(text[start:end + 1])
+            return json.loads(text[start : end + 1])
 
         raise
+
+
+def _create_chat_completion(client, **kwargs):
+    for attempt in range(3):
+        try:
+            return client.chat.completions.create(**kwargs)
+        except RateLimitError as exc:
+            if attempt == 2:
+                raise
+
+            message = str(exc)
+            match = re.search(r"try again in ([0-9.]+)s", message)
+            delay = float(match.group(1)) if match else 2 * (attempt + 1)
+            time.sleep(min(delay + 1, 45))
+        except Exception as exc:
+            if getattr(exc, "status_code", None) == 429 and attempt < 2:
+                message = str(exc)
+                match = re.search(r"try again in ([0-9.]+)s", message)
+                delay = float(match.group(1)) if match else 2 * (attempt + 1)
+                time.sleep(min(delay + 1, 45))
+                continue
+
+            raise RuntimeError(f"Groq reranker failed: {exc}") from exc
 
 
 def _latest_user_text(messages):
@@ -98,11 +124,7 @@ def _latest_user_text(messages):
 
 
 def _names(items):
-    return [
-        item.get("name", "")
-        for item in items or []
-        if item.get("name")
-    ]
+    return [item.get("name", "") for item in items or [] if item.get("name")]
 
 
 def _candidate_block(items, title):
@@ -131,6 +153,26 @@ def _candidate_block(items, title):
     return text
 
 
+def _compact_candidate_block(items, title):
+    if not items:
+        return f"{title}:\n[]"
+
+    lines = [f"{title}:"]
+
+    for idx, item in enumerate(items, start=1):
+        description = re.sub(r"\s+", " ", item["description"]).strip()[:180]
+        lines.append(
+            (
+                f"{idx}. {item['name']} | "
+                f"Categories: {', '.join(item['keys'])} | "
+                f"Levels: {', '.join(item['job_levels'])} | "
+                f"Description: {description}"
+            )
+        )
+
+    return "\n".join(lines)
+
+
 def rerank_candidates(
     state,
     candidates,
@@ -143,7 +185,8 @@ def rerank_candidates(
     if not api_key:
         raise RuntimeError("GROQ_API_KEY is required for assessment selection.")
 
-    client = Groq(api_key=api_key)
+    timeout = float(os.getenv("GROQ_TIMEOUT", "20"))
+    client = Groq(api_key=api_key, timeout=timeout)
 
     prompt = f"""
     Latest User Message:
@@ -168,11 +211,11 @@ def rerank_candidates(
 
     Previous Shortlist Candidate Details:
 
-    {_candidate_block(previous_shortlist or [], "Previous")}
+    {_compact_candidate_block(previous_shortlist or [], "Previous")}
 
     Current Retrieved Candidate Details:
 
-    {_candidate_block(new_candidates or [], "Current")}
+    {_compact_candidate_block(new_candidates or [], "Allowed")}
 
     Select only the relevant final assessment set.
     Choose selected_names only from the previous shortlist or current retrieved candidates.
@@ -191,21 +234,13 @@ def rerank_candidates(
     explain the shortlist in this conversation's context.
     """
 
-    response = client.chat.completions.create(
-
+    response = _create_chat_completion(
+        client,
         model=MODEL_NAME,
-
         messages=[
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
         ],
-
         temperature=0,
         response_format={"type": "json_object"},
     )
@@ -239,10 +274,12 @@ def rerank_candidates(
             reason = item.get("reason", "")
 
         if name in valid_names and reason:
-            omitted_previous.append({
-                "name": name,
-                "reason": reason,
-            })
+            omitted_previous.append(
+                {
+                    "name": name,
+                    "reason": reason,
+                }
+            )
 
     result["omitted_previous"] = omitted_previous
 

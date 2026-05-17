@@ -47,10 +47,7 @@ def extract_mentioned_assessments(messages, catalog):
     mentioned = []
     seen = set()
 
-    by_name = {
-        item.get("name", ""): item
-        for item in catalog
-    }
+    by_name = {item.get("name", ""): item for item in catalog}
 
     for alias, preferred_names in ALIASES.items():
         if not re.search(rf"\b{re.escape(alias)}\b", text):

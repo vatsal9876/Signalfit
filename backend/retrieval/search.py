@@ -2,12 +2,11 @@ import json
 import re
 from pathlib import Path
 import faiss
-import numpy as np
 
 try:
-    from .embeddings import get_model
+    from .embeddings import embed_query
 except ImportError:
-    from embeddings import get_model
+    from embeddings import embed_query
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG_PATH = ROOT / "data" / "shl_catalog.json"
@@ -144,9 +143,10 @@ def build_query(state):
     if state.get("test_types"):
         signals.append(" ".join(_test_type_labels(state["test_types"])))
     if state.get("soft_test_types"):
-        signals.append("optional complementary " + " ".join(
-            _test_type_labels(state["soft_test_types"])
-        ))
+        signals.append(
+            "optional complementary "
+            + " ".join(_test_type_labels(state["soft_test_types"]))
+        )
 
     return f"""
     Role:
@@ -202,11 +202,7 @@ def _test_type_labels(test_types):
         "S": "simulations work sample",
     }
 
-    return [
-        labels[test_type]
-        for test_type in test_types
-        if test_type in labels
-    ]
+    return [labels[test_type] for test_type in test_types if test_type in labels]
 
 
 def _candidate_test_types(candidate):
@@ -236,13 +232,40 @@ def _expected_test_types(state):
 
     requirements = " ".join(state.get("requirements") or []).lower()
 
-    if any(word in requirements for word in ["cognitive", "ability", "aptitude", "reasoning", "numerical", "verbal", "inductive", "deductive"]):
+    if any(
+        word in requirements
+        for word in [
+            "cognitive",
+            "ability",
+            "aptitude",
+            "reasoning",
+            "numerical",
+            "verbal",
+            "inductive",
+            "deductive",
+        ]
+    ):
         inferred.add("A")
-    if any(word in requirements for word in ["situational", "judgment", "judgement", "scenario"]):
+    if any(
+        word in requirements
+        for word in ["situational", "judgment", "judgement", "scenario"]
+    ):
         inferred.add("B")
-    if any(word in requirements for word in ["simulation", "call handling", "live coding", "phone", "contact center"]):
+    if any(
+        word in requirements
+        for word in [
+            "simulation",
+            "call handling",
+            "live coding",
+            "phone",
+            "contact center",
+        ]
+    ):
         inferred.add("S")
-    if any(word in requirements for word in ["spoken", "written", "language", "english", "spanish"]):
+    if any(
+        word in requirements
+        for word in ["spoken", "written", "language", "english", "spanish"]
+    ):
         inferred.update(["K", "S"])
 
     return inferred
@@ -283,10 +306,7 @@ def _matches_seniority(candidate, state):
 
 
 def _metadata_matches(candidate, state):
-    return (
-        _matches_test_type(candidate, state)
-        and _matches_seniority(candidate, state)
-    )
+    return _matches_test_type(candidate, state) and _matches_seniority(candidate, state)
 
 
 def _domain_score(candidate, state):
@@ -458,11 +478,7 @@ def _specific_query_tokens(state):
         "level",
     }
 
-    return {
-        token
-        for token in _tokens(" ".join(parts))
-        if token not in generic
-    }
+    return {token for token in _tokens(" ".join(parts)) if token not in generic}
 
 
 def _broad_requirement(term):
@@ -539,7 +555,12 @@ def lexical_retrieve(state, k=10, candidates=None, keep_rank_score=False):
         name_score = _name_token_score(item, specific_tokens)
         phrase_score = _phrase_score(item, state)
 
-        if overlap == 0 and specific_score == 0 and name_score == 0 and phrase_score == 0:
+        if (
+            overlap == 0
+            and specific_score == 0
+            and name_score == 0
+            and phrase_score == 0
+        ):
             continue
 
         result = _format_item(item, 1 / max(overlap, 1))
@@ -600,27 +621,13 @@ def retrieve(state, k=10, pool_size=35):
 
     query = build_query(state)
     metadata_names = {
-        item.get("name", "")
-        for item in catalog
-        if _metadata_matches(item, state)
+        item.get("name", "") for item in catalog if _metadata_matches(item, state)
     }
-    embedding_model = get_model()
-
-    if embedding_model is None:
-        return lexical_retrieve(state, k=k, candidates=catalog)
-
-    query_embedding = embedding_model.encode([query])
-
-    query_embedding = np.array(
-        query_embedding
-    ).astype("float32")
+    query_embedding = embed_query(query)
 
     search_k = min(max(k, pool_size), index.ntotal)
 
-    distances, indices = index.search(
-        query_embedding,
-        search_k
-    )
+    distances, indices = index.search(query_embedding, search_k)
 
     results = []
     seen = set()
@@ -678,10 +685,7 @@ if __name__ == "__main__":
     state = {
         "role": "executive leadership",
         "seniority": "director",
-        "requirements": [
-            "benchmarking",
-            "personality evaluation"
-        ]
+        "requirements": ["benchmarking", "personality evaluation"],
     }
 
     results = retrieve(state)

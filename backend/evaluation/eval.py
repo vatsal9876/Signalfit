@@ -121,8 +121,8 @@ def parse_trace(path, by_url, by_name):
         if user_start < 0 or agent_start < 0 or agent_start < user_start:
             continue
 
-        user_body = chunk[user_start + len(user_marker):agent_start]
-        agent_body = chunk[agent_start + len(agent_marker):]
+        user_body = chunk[user_start + len(user_marker) : agent_start]
+        agent_body = chunk[agent_start + len(agent_marker) :]
 
         user = clean_block(user_body)
         agent = clean_block(agent_body)
@@ -154,23 +154,29 @@ def build_eval_cases(traces_dir):
         history = []
 
         for turn in turns:
-            history.append({
-                "role": "user",
-                "content": turn.user,
-            })
+            history.append(
+                {
+                    "role": "user",
+                    "content": turn.user,
+                }
+            )
 
             if turn.expected_names:
-                cases.append(EvalCase(
-                    trace_id=path.stem,
-                    turn_number=turn.number,
-                    messages=list(history),
-                    expected_names=turn.expected_names,
-                ))
+                cases.append(
+                    EvalCase(
+                        trace_id=path.stem,
+                        turn_number=turn.number,
+                        messages=list(history),
+                        expected_names=turn.expected_names,
+                    )
+                )
 
-            history.append({
-                "role": "assistant",
-                "content": assistant_context(turn),
-            })
+            history.append(
+                {
+                    "role": "assistant",
+                    "content": assistant_context(turn),
+                }
+            )
 
     return cases
 
@@ -286,18 +292,12 @@ def summarise_by_trace(results):
     for trace, trace_results in sorted(by_trace.items()):
         recalls = [result["recall_at_10"] for result in trace_results]
         schema_failures = sum(
-            1
-            for result in trace_results
-            if result["schema_problems"]
+            1 for result in trace_results if result["schema_problems"]
         )
 
         summary[trace] = {
             "cases": len(trace_results),
-            "mean_recall_at_10": (
-                sum(recalls) / len(recalls)
-                if recalls
-                else 0.0
-            ),
+            "mean_recall_at_10": (sum(recalls) / len(recalls) if recalls else 0.0),
             "schema_failures": schema_failures,
         }
 
@@ -346,15 +346,20 @@ def main():
     cases = build_eval_cases(args.traces_dir)
 
     if args.dry_run:
-        print(json.dumps([
-            {
-                "trace": case.trace_id,
-                "turn": case.turn_number,
-                "expected": case.expected_names,
-                "messages": case.messages,
-            }
-            for case in cases
-        ], indent=2))
+        print(
+            json.dumps(
+                [
+                    {
+                        "trace": case.trace_id,
+                        "turn": case.turn_number,
+                        "expected": case.expected_names,
+                        "messages": case.messages,
+                    }
+                    for case in cases
+                ],
+                indent=2,
+            )
+        )
         return
 
     use_local = args.local or not args.endpoint
@@ -397,13 +402,18 @@ def main():
 
     print("\nJSON")
     print("----")
-    print(json.dumps({
-        "cases": len(results),
-        "mean_recall_at_10": mean_recall,
-        "schema_failures": schema_failures,
-        # "by_trace": by_trace,
-        # "results": results,
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "cases": len(results),
+                "mean_recall_at_10": mean_recall,
+                "schema_failures": schema_failures,
+                # "by_trace": by_trace,
+                # "results": results,
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

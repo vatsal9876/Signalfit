@@ -10,7 +10,7 @@ const qaQuestion = document.querySelector("#qa-question");
 const qaAnswer = document.querySelector("#qa-answer");
 const qaLink = document.querySelector("#qa-link");
 const qaType = document.querySelector("#qa-type");
-const API_URL = "https://shl-backend-k4gp.onrender.com/chat";
+const API_URL = "/chat";
 
 const conversation = [];
 let latestUserQuestion = "";

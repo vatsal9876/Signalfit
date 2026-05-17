@@ -72,13 +72,7 @@ class HealthResponse(BaseModel):
 
 
 def _to_controller_messages(messages: List[Message]) -> List[Dict[str, str]]:
-    return [
-        {
-            "role": message.role,
-            "content": message.content
-        }
-        for message in messages
-    ]
+    return [{"role": message.role, "content": message.content} for message in messages]
 
 
 def _run_agent(messages: List[Dict[str, str]]) -> Dict[str, Any]:
@@ -87,10 +81,7 @@ def _run_agent(messages: List[Dict[str, str]]) -> Dict[str, Any]:
     try:
         return agent(messages)
     except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 def _warm_agent():
@@ -99,10 +90,8 @@ def _warm_agent():
     if _WARMED:
         return
 
-    from retrieval.embeddings import get_model
     from retrieval.search import catalog, index
 
-    get_model()
     len(catalog)
     index.ntotal
     _WARMED = True
@@ -130,7 +119,7 @@ def chat(request: ChatRequest):
     Send the full conversation history. The controller reconstructs current
     state from the full trace, so refinements work without server-side memory.
     """
-
+    _warm_agent()
     messages = _to_controller_messages(request.messages)
     return _run_agent(messages)
 
@@ -140,9 +129,4 @@ if __name__ == "__main__":
 
     port = int(os.getenv("PORT", "8000"))
 
-    uvicorn.run(
-        "backend.main:app",
-        host="0.0.0.0",
-        port=port,
-        reload=True
-    )
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=port, reload=True)

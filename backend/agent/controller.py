@@ -95,11 +95,13 @@ def normalise_recommendations(recommendations):
     normalised = []
 
     for item in recommendations[:10]:
-        normalised.append({
-            "name": str(item.get("name", "")),
-            "url": str(item.get("url", "")),
-            "test_type": str(item.get("test_type", "")),
-        })
+        normalised.append(
+            {
+                "name": str(item.get("name", "")),
+                "url": str(item.get("url", "")),
+                "test_type": str(item.get("test_type", "")),
+            }
+        )
 
     return normalised
 
@@ -107,20 +109,23 @@ def normalise_recommendations(recommendations):
 def has_retrievable_signal(state):
     requirements = state.get("requirements") or []
 
-    return any([
-        state.get("role"),
-        state.get("domain") and state.get("domain") != "other",
-        state.get("test_types"),
-        requirements,
-        state.get("personality_required"),
-        state.get("leadership_required"),
-        state.get("technical_required"),
-    ])
+    return any(
+        [
+            state.get("role"),
+            state.get("domain") and state.get("domain") != "other",
+            state.get("test_types"),
+            requirements,
+            state.get("personality_required"),
+            state.get("leadership_required"),
+            state.get("technical_required"),
+        ]
+    )
 
 
 # =========================================================
 # GROUNDED OUTPUT HELPERS
 # =========================================================
+
 
 def _latest_user_text(messages):
     for message in reversed(messages):
@@ -181,16 +186,23 @@ def extract_prior_shortlist(messages):
     return []
 
 
+def extract_contextual_candidates(messages):
+    """
+    Pull catalog products named anywhere in the conversation into the candidate
+    pool. A user or assistant may mention grounded products before a formal
+    "Shortlist:" marker; keeping those names prevents retrieval from losing
+    high-signal products already present in the conversation.
+    """
+
+    text = "\n".join(message.get("content", "") for message in messages)
+    return _catalog_items_mentioned_in_text(text)
+
+
 def _name_aliases(item):
     name = item.get("name", "")
     aliases = [name.lower()]
 
-    compact = (
-        name.lower()
-        .replace("(new)", "")
-        .replace("  ", " ")
-        .strip()
-    )
+    compact = name.lower().replace("(new)", "").replace("  ", " ").strip()
     aliases.append(compact)
 
     for token in [
@@ -266,7 +278,9 @@ def apply_user_positive_selection(candidates, messages):
     for item in candidates:
         aliases = _name_aliases(item)
 
-        if any(alias and re.search(rf"\b{re.escape(alias)}\b", latest) for alias in aliases):
+        if any(
+            alias and re.search(rf"\b{re.escape(alias)}\b", latest) for alias in aliases
+        ):
             selected.append(item)
 
     return selected or candidates
@@ -285,9 +299,8 @@ def user_mentions_item(item, messages):
 def can_omit_prior_item(item, messages):
     latest = _latest_user_text(messages).lower()
 
-    return (
-        user_mentions_item(item, messages)
-        and any(word in latest for word in OMISSION_WORDS)
+    return user_mentions_item(item, messages) and any(
+        word in latest for word in OMISSION_WORDS
     )
 
 
@@ -315,10 +328,21 @@ def should_retrieve_for_turn(state, operation, prior_shortlist, messages):
     return False
 
 
-def build_allowed_candidate_pool(retrieved, prior, operation="recommend", k=25):
+def build_allowed_candidate_pool(
+    retrieved,
+    prior,
+    contextual=None,
+    operation="recommend",
+    k=60,
+):
     allowed = []
     seen = set()
-    pools = prior + retrieved if operation == "refine" else retrieved + prior
+
+    contextual = contextual or []
+    if operation == "refine":
+        pools = prior + contextual + retrieved
+    else:
+        pools = contextual + retrieved + prior
 
     for item in pools:
         name = item.get("name", "")
@@ -340,32 +364,24 @@ def select_from_rerank(
 ):
     rerank = rerank_candidates(
         state,
-        candidates[:15],
+        candidates[:25],
         messages=messages,
         operation=operation,
         previous_shortlist=prior_shortlist or [],
-        new_candidates=retrieved or [],
+        new_candidates=candidates[:25],
     )
     selected_names = rerank.get("selected_names", [])
     omitted_previous = rerank.get("omitted_previous", [])
 
     by_name = {item["name"]: item for item in candidates}
 
-    selected_items = [
-        by_name[name]
-        for name in selected_names[:k]
-        if name in by_name
-    ]
+    selected_items = [by_name[name] for name in selected_names[:k] if name in by_name]
 
     return selected_items, rerank.get("reply", ""), omitted_previous
 
 
 def approved_llm_omissions(omitted_previous, prior_shortlist):
-    prior_names = {
-        item.get("name", "")
-        for item in prior_shortlist
-        if item.get("name")
-    }
+    prior_names = {item.get("name", "") for item in prior_shortlist if item.get("name")}
     approved = []
 
     for item in omitted_previous or []:
@@ -403,9 +419,7 @@ def preserve_unaffected_prior_items(
         prior_shortlist,
     )
     selected_by_name = {
-        item.get("name", ""): item
-        for item in selected_items
-        if item.get("name")
+        item.get("name", ""): item for item in selected_items if item.get("name")
     }
     preserved = []
     seen = set()
@@ -438,7 +452,11 @@ def preserve_unaffected_prior_items(
 
 
 def build_recommendation_reply(state, operation):
-    prefix = "Updated shortlist" if operation == "refine" else "Here are relevant SHL assessments"
+    prefix = (
+        "Updated shortlist"
+        if operation == "refine"
+        else "Here are relevant SHL assessments"
+    )
     details = []
 
     if state.get("role"):
@@ -470,9 +488,7 @@ def append_shortlist_to_reply(reply, recommendations):
 
 def catalog_item_to_recommendation(item):
     test_types = [
-        TEST_TYPE_BY_KEY[key]
-        for key in item.get("keys", [])
-        if key in TEST_TYPE_BY_KEY
+        TEST_TYPE_BY_KEY[key] for key in item.get("keys", []) if key in TEST_TYPE_BY_KEY
     ]
 
     return {
@@ -507,6 +523,7 @@ def compare_assessments(items):
 # MAIN AGENT PIPELINE
 # =========================================================
 
+
 def agent(messages):
     # ---------------------------------------------
     # STEP 1 — EXPLICIT OPERATION + STATE
@@ -529,6 +546,10 @@ def agent(messages):
 
     if operation == "compare":
         mentioned = extract_mentioned_assessments(messages, catalog)
+        prior_shortlist = extract_prior_shortlist(messages)
+        prior_recommendations = [
+            catalog_item_to_recommendation(item) for item in prior_shortlist
+        ]
 
         if len(mentioned) < 2:
             return make_response(
@@ -536,10 +557,12 @@ def agent(messages):
                     "Which two or more SHL assessments should I compare? "
                     "Please use their catalog names."
                 ),
+                prior_recommendations,
             )
 
         return make_response(
             compare_assessments(mentioned),
+            prior_recommendations,
         )
 
     if operation == "clarify" and state.get("clarification_question"):
@@ -553,6 +576,7 @@ def agent(messages):
     # The latest assistant-emitted shortlist is the conversation state.
     # Retrieval can propose additions, but it should not replace this state.
     prior_shortlist = extract_prior_shortlist(messages)
+    contextual_candidates = extract_contextual_candidates(messages)
 
     if state.get("final_confirmation") and prior_shortlist:
         selected_items = apply_user_positive_selection(
@@ -560,8 +584,7 @@ def agent(messages):
             messages,
         )[:10]
         recommendations = [
-            catalog_item_to_recommendation(item)
-            for item in selected_items
+            catalog_item_to_recommendation(item) for item in selected_items
         ]
         reply = append_shortlist_to_reply(
             "Confirmed. Final shortlist locked in.",
@@ -585,10 +608,11 @@ def agent(messages):
         prior_shortlist,
         messages,
     )
-    retrieved = retrieve(state, k=15) if should_retrieve else []
+    retrieved = retrieve(state, k=30, pool_size=90) if should_retrieve else []
     candidates = build_allowed_candidate_pool(
         retrieved,
         prior_shortlist,
+        contextual=contextual_candidates,
         operation=operation,
     )
 
@@ -618,10 +642,7 @@ def agent(messages):
         messages,
         omitted_previous=omitted_previous,
     )
-    recommendations = [
-        catalog_item_to_recommendation(item)
-        for item in selected_items
-    ]
+    recommendations = [catalog_item_to_recommendation(item) for item in selected_items]
 
     reply = rerank_reply or build_recommendation_reply(state, operation)
     reply = append_shortlist_to_reply(
@@ -642,10 +663,7 @@ def agent(messages):
 
 if __name__ == "__main__":
     messages = [
-        {
-            "role": "user",
-            "content": "We need a solution for senior leadership."
-        }
+        {"role": "user", "content": "We need a solution for senior leadership."}
     ]
 
     response = agent(messages)
